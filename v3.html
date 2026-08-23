@@ -187,6 +187,7 @@ let paperCv = null;                            // papyrus, pre-rendered once per
 let inkCv = null, inkCtx = null;               // ink: its own vector layer
 let rS = 2, rW = 2, rC = 2;                    // brush radii in cells, derived from CELL
 let ampS = 1, ampW = 1;                        // stroke depth, scaled with radius
+let kS = 1, kC = 1;                            // spread rate, scaled with radius squared
 let WSUB = 1;                                  // water substeps per fixed step
 let mode = "sand";
 let phase = "choose";
@@ -248,9 +249,15 @@ function build(){
   rW = Math.max(1.15, R_WATER / CELL);
   rC = Math.max(1.15, R_CLOUD / CELL);
 
-  // a narrower groove at the old depth reads as a black gash, so ease depth down with width
-  ampS = 0.45 + 0.55 * Math.min(1, rS / 5.2);
-  ampW = 0.45 + 0.55 * Math.min(1, rW / 4.0);
+  // a narrow groove at the old depth is a black gash: halve the width, halve the depth,
+  // and the slope the shading actually reads stays where it was
+  ampS = Math.min(1, rS / 5.2);
+  ampW = Math.min(1, rW / 4.0);
+
+  // Spreading is per cell, so a brush half as wide in cells used to wash out four times
+  // as fast. Scale the rate by width squared and a thin line lasts as long as a fat one did.
+  kS = Math.min(1, (rS / 5.2) * (rS / 5.2));
+  kC = Math.min(1, (rC / 4.8) * (rC / 4.8));
 
   // ripples travel one cell per step; on a fine grid that is too slow, so substep
   WSUB = Math.max(1, Math.min(3, Math.round(5 / CELL)));
@@ -302,7 +309,7 @@ function sandCarve(cx, cy, strength, r){
 }
 function sandStep(dt, r){
   const dcy = Math.exp(-(0.055 + r * 0.62) * dt);
-  const k = Math.min(0.22, 5.5 * dt);
+  const k = Math.min(0.22, 5.5 * dt) * kS;
   for (let y = 0; y < gh; y++){
     const yn = y > 0 ? y-1 : 0, ys = y < gh-1 ? y+1 : gh-1;
     for (let x = 0; x < gw; x++){
@@ -314,7 +321,7 @@ function sandStep(dt, r){
   SAND.set(SAND2);
 }
 function sandRender(r, fade){
-  const dim = (1 - r * 0.34) * fade, S = 1.5 / Math.max(0.35, ampS);
+  const dim = (1 - r * 0.34) * fade, S = 1.5;
   for (let y = 0; y < gh; y++){
     const yn = y > 0 ? y-1 : 0, ys = y < gh-1 ? y+1 : gh-1;
     for (let x = 0; x < gw; x++){
@@ -363,7 +370,7 @@ function waterStep(r){
   }
 }
 function waterRender(r, fade){
-  const dim = (1 - r * 0.30) * fade, S = 2.2 / Math.max(0.35, ampW);
+  const dim = (1 - r * 0.30) * fade, S = 2.2;
   // deep -> reflected sky
   const dR=30, dG=58, dB=64, sR=128, sG=163, sB=170;
   for (let y = 0; y < gh; y++){
@@ -412,7 +419,7 @@ function cloudPoke(cx, cy, strength, r){
 }
 function cloudStep(dt, r){
   const dcy = Math.exp(-(0.055 + r * 0.34) * dt);
-  const k = Math.min(0.30, 6.5 * dt);
+  const k = Math.min(0.30, 6.5 * dt) * kC;
   for (let y = 0; y < gh; y++){
     const yn = y > 0 ? y-1 : 0, ys = y < gh-1 ? y+1 : gh-1;
     for (let x = 0; x < gw; x++){
