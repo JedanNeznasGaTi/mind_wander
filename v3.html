@@ -162,6 +162,9 @@ const params   = new URLSearchParams(location.search);
 const SESSION  = Math.max(8, parseInt(params.get("t") || "180", 10));
 const TESTMODE = params.get("test") === "1";
 const BRUSH    = Math.max(0.04, Math.min(3, parseFloat(params.get("b") || "0.2") || 0.2));
+/* The closing fade is a share of the session, not a flat twelve seconds: on a short
+   test run a fixed window starts already dimmed and never reaches full brightness. */
+const FADEW    = Math.min(12, SESSION * 0.15);
 
 /* Brush sizes live in CSS pixels, not grid cells, so they stay put when the
    grid is coarsened for a big screen or for a slow device. The constants are
@@ -675,7 +678,7 @@ function frame(now){
   if (mode === "ink") inkFade(dt, r);
 
   const remain = SESSION - t;
-  paint(r, remain < 12 ? Math.max(0, remain/12) : 1);
+  paint(r, remain < FADEW ? Math.max(0, remain / FADEW) : 1);
 
   // if the device can't keep up, coarsen the grid rather than stutter
   if (phase === "play" && degraded < 2){
