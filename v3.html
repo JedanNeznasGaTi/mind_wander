@@ -186,7 +186,7 @@ let CLOUD = null;                              // cloud density
 let paperCv = null;                            // papyrus, pre-rendered once per build
 let inkCv = null, inkCtx = null;               // ink: its own vector layer
 let rS = 2, rW = 2, rC = 2;                    // brush radii in cells, derived from CELL
-let ampS = 1, ampW = 1;                        // stroke depth, scaled with radius
+let ampS = 1, ampW = 1, ampC = 1;              // deposit rate, corrected for cell size
 let kS = 1, kC = 1;                            // spread rate, scaled with radius squared
 let WSUB = 1;                                  // water substeps per fixed step
 let mode = "sand";
@@ -249,10 +249,13 @@ function build(){
   rW = Math.max(1.15, R_WATER / CELL);
   rC = Math.max(1.15, R_CLOUD / CELL);
 
-  // a narrow groove at the old depth is a black gash: halve the width, halve the depth,
-  // and the slope the shading actually reads stays where it was
-  ampS = Math.min(1, rS / 5.2);
-  ampW = Math.min(1, rW / 4.0);
+  /* A drag stamps one gaussian per cell it crosses, so the height it lays down goes as
+     bite x radius-in-pixels: shrink the brush and refine the grid and you get far less
+     material than v0.2 did. Correcting by the cell ratio alone leaves depth and width
+     scaling together, which is what keeps the lit slope -- and so the contrast -- put. */
+  ampS = 5 / CELL;
+  ampW = 5 / CELL;
+  ampC = 2 / CELL;
 
   // Spreading is per cell, so a brush half as wide in cells used to wash out four times
   // as fast. Scale the rate by width squared and a thin line lasts as long as a fat one did.
@@ -645,7 +648,7 @@ function frame(now){
       const steps = Math.max(1, Math.min(28, Math.ceil(dist)));
       const bite = mode === "sand"   ? (0.95 - r*0.72) * 60 * dt * ampS
                  : mode === "water"  ? (0.55 - r*0.40) * 60 * dt * ampW
-                 :                     (1.15 - r*0.60) * 60 * dt;
+                 :                     (1.15 - r*0.60) * 60 * dt * ampC;
       for (let s = 1; s <= steps; s++){
         const cx = (pfx + dx*(s/steps)) / CELL, cy = (pfy + dy*(s/steps)) / CELL;
         if (mode === "sand")       sandCarve(cx, cy, bite/steps, rS);
