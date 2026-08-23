@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1c1815">
+<title>surface</title>
+<style>
+  :root{
+    --ink:#6b6055; --ink-dim:#8f8579;
+    --paper:#efe6d8; --paper-edge:#c9bba6; --paper-hover:#e3d7c4;
+    --dark:#14110f; --dark-ink:#7d7469;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    margin:0; padding:0; height:100%; width:100%;
+    background:#1c1815; overflow:hidden; overscroll-behavior:none; touch-action:none;
+    font-family: Iowan Old Style, Palatino Linotype, Palatino, Georgia, serif;
+  }
+  canvas{ display:block; position:fixed; inset:0; width:100%; height:100%; }
+
+  .veil{
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; padding:34px 28px; text-align:center;
+    background:var(--paper); color:var(--ink); transition:opacity .9s ease;
+  }
+  .veil.dark{ background:var(--dark); color:var(--dark-ink); }
+  .veil.hidden{ opacity:0; pointer-events:none; }
+  .veil.gone{ display:none; }
+
+  .note{ font-size:15px; line-height:1.65; color:var(--ink-dim); max-width:19em; margin:0 0 34px; }
+  .veil.dark .note{ color:var(--dark-ink); margin-bottom:30px; }
+  .q{ font-size:19px; line-height:1.5; max-width:22em; margin:0 0 28px; }
+
+  /* 2x2 so four choices fit a phone */
+  .picks{ display:grid; grid-template-columns:repeat(2,1fr); gap:13px; width:100%; max-width:290px; }
+  .pick{
+    height:118px; border:1px solid var(--paper-edge); background:transparent;
+    color:var(--ink); font-family:inherit; font-size:16px; letter-spacing:.04em;
+    cursor:pointer; display:flex; flex-direction:column; align-items:center;
+    justify-content:flex-end; gap:10px; padding-bottom:16px; transition:background .25s ease;
+  }
+  .pick:hover{ background:var(--paper-hover); }
+  .pick:focus-visible{ outline:2px solid var(--ink); outline-offset:3px; }
+  .pick svg{ width:52px; height:32px; }
+  .veil.dark .picks{ max-width:252px; gap:11px; }
+  .veil.dark .pick{ height:98px; font-size:14px; padding-bottom:13px; gap:7px; border-color:#2e2722; color:var(--dark-ink); }
+  .veil.dark .pick svg{ width:44px; height:27px; }
+  .veil.dark .pick:hover{ background:#1e1a17; }
+  @media (max-height:560px){
+    .pick{ height:96px; } .pick svg{ width:44px; height:27px; }
+    .note{ margin-bottom:22px; }
+  }
+
+  .scale{ display:flex; gap:10px; margin-bottom:8px; }
+  .dot{ width:44px; height:44px; border-radius:50%; border:1px solid var(--paper-edge);
+        background:transparent; color:var(--ink); font-family:inherit; font-size:15px; cursor:pointer; }
+  .dot:hover{ background:var(--paper-hover); }
+  .ends{ display:flex; justify-content:space-between; width:100%; max-width:280px;
+         font-size:12px; color:var(--ink-dim); letter-spacing:.06em; }
+  .choices{ display:flex; flex-direction:column; gap:12px; width:100%; max-width:300px; }
+  .choice{ padding:14px 18px; border:1px solid var(--paper-edge); background:transparent;
+           color:var(--ink); font-family:inherit; font-size:16px; cursor:pointer; }
+  .choice:hover{ background:var(--paper-hover); }
+
+  #summary pre{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px;
+                line-height:1.7; text-align:left; background:#e6dbc8; padding:16px;
+                max-width:100%; overflow:auto; margin:0 0 24px; }
+  .quiet{ background:none; border:none; color:var(--ink-dim); font-family:inherit;
+          font-size:14px; text-decoration:underline; cursor:pointer; padding:8px; }
+
+  @media (prefers-reduced-motion: reduce){ .veil{ transition:none; } }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<!-- optional pre-question, only with ?test=1 -->
+<div class="veil hidden gone" id="before">
+  <p class="q">Right now, how wound up does your head feel?</p>
+  <div class="scale" id="preScale"></div>
+  <div class="ends"><span>settled</span><span>racing</span></div>
+</div>
+
+<!-- environment chooser -->
+<div class="veil" id="choose">
+  <p class="note">Drag to disturb the surface.<br>Nothing you make stays.<br>It ends on its own.</p>
+  <div class="picks">
+    <button class="pick" data-mode="sand">
+      <svg viewBox="0 0 56 34" aria-hidden="true">
+        <path d="M2 26 Q14 18 28 22 T54 16" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".55"/>
+        <path d="M2 20 Q16 11 28 16 T54 9"  fill="none" stroke="currentColor" stroke-width="1.3" opacity=".35"/>
+      </svg>
+      Sand
+    </button>
+    <button class="pick" data-mode="water">
+      <svg viewBox="0 0 56 34" aria-hidden="true">
+        <ellipse cx="28" cy="18" rx="9"  ry="4"   fill="none" stroke="currentColor" stroke-width="1.3" opacity=".7"/>
+        <ellipse cx="28" cy="18" rx="17" ry="7.5" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".42"/>
+        <ellipse cx="28" cy="18" rx="25" ry="11"  fill="none" stroke="currentColor" stroke-width="1.3" opacity=".2"/>
+      </svg>
+      Water
+    </button>
+    <button class="pick" data-mode="clouds">
+      <svg viewBox="0 0 56 34" aria-hidden="true">
+        <g fill="none" stroke="currentColor" stroke-width="1.3" opacity=".6">
+          <circle cx="24" cy="15" r="8"/>
+          <circle cx="35" cy="18" r="6"/>
+          <circle cx="15" cy="19" r="5.4"/>
+        </g>
+        <path d="M6 29 h44" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".2"/>
+      </svg>
+      Clouds
+    </button>
+    <button class="pick" data-mode="ink">
+      <svg viewBox="0 0 56 34" aria-hidden="true">
+        <rect x="8" y="3.5" width="40" height="27" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".28"/>
+        <path d="M14 25 C18.5 10 24 9 27 15.6 C30 22.2 34.6 22.2 40.4 11.4 L42 13 C35.6 25.4 29 26.4 25.6 19 C22.4 12 18.8 12.8 15.4 26 Z"
+              fill="currentColor" opacity=".68"/>
+      </svg>
+      Ink
+    </button>
+  </div>
+</div>
+
+<!-- optional post-questions, only with ?test=1 -->
+<div class="veil hidden gone" id="after">
+  <p class="q" id="afterQ"></p>
+  <div class="scale" id="afterScale"></div>
+  <div class="ends" id="afterEnds"><span></span><span></span></div>
+  <div class="choices" id="afterChoices"></div>
+</div>
+
+<div class="veil hidden gone" id="summary">
+  <p class="note" style="margin-bottom:20px">Send this back.</p>
+  <pre id="report"></pre>
+  <button class="quiet" id="copyBtn">Copy</button>
+  <button class="quiet" id="againBtn">Again</button>
+</div>
+
+<!-- end screen -->
+<div class="veil dark hidden gone" id="endv">
+  <p class="note">Done.</p>
+  <div class="picks">
+    <button class="pick" data-mode="sand">Sand</button>
+    <button class="pick" data-mode="water">Water</button>
+    <button class="pick" data-mode="clouds">Clouds</button>
+    <button class="pick" data-mode="ink">Ink</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------
+   surface — v0.3
+   ?t=SECONDS   session length (default 180)
+   ?test=1      re-enables the before/after questions
+   ?b=FLOAT     brush scale relative to v0.2 (default 0.2 = five times smaller)
+   ------------------------------------------------------------------ */
+const params   = new URLSearchParams(location.search);
+const SESSION  = Math.max(8, parseInt(params.get("t") || "180", 10));
+const TESTMODE = params.get("test") === "1";
+const BRUSH    = Math.max(0.04, Math.min(3, parseFloat(params.get("b") || "0.2") || 0.2));
+
+/* Brush sizes live in CSS pixels, not grid cells, so they stay put when the
+   grid is coarsened for a big screen or for a slow device. The constants are
+   the v0.2 sizes; BRUSH scales all of them together. */
+const R_SAND  = 26 * BRUSH;
+const R_WATER = 20 * BRUSH;
+const R_CLOUD = 24 * BRUSH;
+const R_NIB   = 13 * BRUSH;   // half-width of the calligraphy nib
+
+const cv = document.getElementById("c");
+const ctx = cv.getContext("2d", { alpha:false });
+const buf = document.createElement("canvas");
+const bufCtx = buf.getContext("2d");
+
+let CELL = 3, cellBoost = 0;
+let gw = 0, gh = 0, W = 0, Hpx = 0;
+let img = null, px = null;
+
+let SAND = null, SAND2 = null, grain = null;   // sand heightfield (SAND2 doubles as scratch)
+let WcurA = null, WcurB = null;                // water: two wave buffers
+let CLOUD = null;                              // cloud density
+let paperCv = null;                            // papyrus, pre-rendered once per build
+let inkCv = null, inkCtx = null;               // ink: its own vector layer
+let rS = 2, rW = 2, rC = 2;                    // brush radii in cells, derived from CELL
+let ampS = 1, ampW = 1;                        // stroke depth, scaled with radius
+let WSUB = 1;                                  // water substeps per fixed step
+let mode = "sand";
+let phase = "choose";
+
+/* ---------- grid build, preserving state across resize ---------- */
+function resample(src, ow, oh, nw, nh){
+  const out = new Float32Array(nw * nh);
+  if (!src || !ow || !oh) return out;
+  for (let y = 0; y < nh; y++){
+    const sy = Math.min(oh - 1, (y * oh / nh) | 0);
+    for (let x = 0; x < nw; x++){
+      const sx = Math.min(ow - 1, (x * ow / nw) | 0);
+      out[y * nw + x] = src[sy * ow + sx];
+    }
+  }
+  return out;
+}
+
+/* Cell size follows the viewport: a phone gets a fine grid so a small brush
+   still has room to draw, a desktop gets a coarse one so the cost stays sane. */
+function pickCell(){
+  const c = Math.sqrt((W * Hpx) / 120000);
+  return Math.min(9, Math.max(2, Math.round(c)) + cellBoost);
+}
+
+function build(){
+  const ow = gw, oh = gh;
+  W = window.innerWidth; Hpx = window.innerHeight;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+  cv.width = Math.round(W * dpr); cv.height = Math.round(Hpx * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+
+  CELL = pickCell();
+  gw = Math.max(8, Math.ceil(W / CELL));
+  gh = Math.max(8, Math.ceil(Hpx / CELL));
+
+  buf.width = gw; buf.height = gh;
+  img = bufCtx.createImageData(gw, gh);
+  px = new Uint32Array(img.data.buffer);
+
+  // carry existing surfaces over instead of wiping them
+  SAND  = resample(SAND,  ow, oh, gw, gh);
+  WcurA = resample(WcurA, ow, oh, gw, gh);
+  WcurB = resample(WcurB, ow, oh, gw, gh);
+  CLOUD = resample(CLOUD, ow, oh, gw, gh);
+  SAND2 = new Float32Array(gw * gh);
+
+  if (grain && ow && oh){
+    grain = resample(grain, ow, oh, gw, gh);
+  } else {
+    grain = new Float32Array(gw * gh);
+    for (let i = 0; i < grain.length; i++) grain[i] = Math.random() - 0.5;
+  }
+
+  // a gaussian narrower than ~1.15 cells just aliases into a single pixel
+  rS = Math.max(1.15, R_SAND  / CELL);
+  rW = Math.max(1.15, R_WATER / CELL);
+  rC = Math.max(1.15, R_CLOUD / CELL);
+
+  // a narrower groove at the old depth reads as a black gash, so ease depth down with width
+  ampS = 0.45 + 0.55 * Math.min(1, rS / 5.2);
+  ampW = 0.45 + 0.55 * Math.min(1, rW / 4.0);
+
+  // ripples travel one cell per step; on a fine grid that is too slow, so substep
+  WSUB = Math.max(1, Math.min(3, Math.round(5 / CELL)));
+
+  buildPaper();
+  buildInk(dpr);
+}
+
+let resizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(build, 140);   // debounced: iOS toolbar collapse fires this a lot
+});
+
+/* ---------- input: follower lags the finger on purpose ---------- */
+let down = false, tx = 0, ty = 0, fx = 0, fy = 0, pfx = 0, pfy = 0, dragSpeed = 0;
+
+cv.addEventListener("pointerdown", e => {
+  if (phase !== "play") return;
+  e.preventDefault();
+  down = true; tx = e.clientX; ty = e.clientY;
+  fx = tx; fy = ty; pfx = fx; pfy = fy;
+  try { cv.setPointerCapture(e.pointerId); } catch(err){}
+  resumeAudio();
+});
+cv.addEventListener("pointermove", e => {
+  if (!down) return;
+  e.preventDefault(); tx = e.clientX; ty = e.clientY;
+});
+["pointerup","pointercancel","pointerleave"].forEach(ev =>
+  cv.addEventListener(ev, () => { down = false; }));
+
+/* ---------- the boredom ramp: 0 at start, 1 at the end ---------- */
+function ramp(t){ const p = Math.min(1, t / SESSION); return p * p * (3 - 2 * p); }
+
+/* ================= SAND ================= */
+function sandCarve(cx, cy, strength, r){
+  const R = r * 2.0;
+  const x0 = Math.max(0, (cx - R)|0), x1 = Math.min(gw - 1, Math.ceil(cx + R));
+  const y0 = Math.max(0, (cy - R)|0), y1 = Math.min(gh - 1, Math.ceil(cy + R));
+  const inv = 1 / (r * r), invW = 1 / (r * 1.75 * r * 1.75);
+  for (let y = y0; y <= y1; y++){
+    const dy = y - cy;
+    for (let x = x0; x <= x1; x++){
+      const dx = x - cx, d2 = dx*dx + dy*dy;
+      SAND[y*gw+x] += strength * (-Math.exp(-d2*inv) + 0.46 * Math.exp(-d2*invW));
+    }
+  }
+}
+function sandStep(dt, r){
+  const dcy = Math.exp(-(0.055 + r * 0.62) * dt);
+  const k = Math.min(0.22, 5.5 * dt);
+  for (let y = 0; y < gh; y++){
+    const yn = y > 0 ? y-1 : 0, ys = y < gh-1 ? y+1 : gh-1;
+    for (let x = 0; x < gw; x++){
+      const i = y*gw+x, xw = x > 0 ? x-1 : 0, xe = x < gw-1 ? x+1 : gw-1;
+      const avg = (SAND[y*gw+xw] + SAND[y*gw+xe] + SAND[yn*gw+x] + SAND[ys*gw+x]) * 0.25;
+      SAND2[i] = (SAND[i] + k * (avg - SAND[i])) * dcy;
+    }
+  }
+  SAND.set(SAND2);
+}
+function sandRender(r, fade){
+  const dim = (1 - r * 0.34) * fade, S = 1.5 / Math.max(0.35, ampS);
+  for (let y = 0; y < gh; y++){
+    const yn = y > 0 ? y-1 : 0, ys = y < gh-1 ? y+1 : gh-1;
+    for (let x = 0; x < gw; x++){
+      const i = y*gw+x, xw = x > 0 ? x-1 : 0, xe = x < gw-1 ? x+1 : gw-1;
+      const nx = (SAND[y*gw+xw] - SAND[y*gw+xe]) * S;
+      const ny = (SAND[yn*gw+x] - SAND[ys*gw+x]) * S;
+      const il = 1 / Math.sqrt(nx*nx + ny*ny + 1);
+      let lam = (nx*-0.44 + ny*-0.60 + 0.67) * il;
+      lam = (0.66 + lam*0.40 + grain[i]*0.028) * dim;
+      let R = 214*lam, G = 193*lam, B = 163*lam;
+      if (R>255) R=255; if (G>255) G=255; if (B>255) B=255;
+      if (R<0) R=0; if (G<0) G=0; if (B<0) B=0;
+      px[i] = (255<<24) | (B<<16) | (G<<8) | R;
+    }
+  }
+}
+
+/* ================= WATER =================
+   Two-buffer wave propagation. Unlike sand, nothing persists at all —
+   the disturbance travels outward, reflects off the edges, and dies. */
+function waterPoke(cx, cy, strength, r){
+  const R = r * 2.0;
+  const x0 = Math.max(1, (cx - R)|0), x1 = Math.min(gw-2, Math.ceil(cx + R));
+  const y0 = Math.max(1, (cy - R)|0), y1 = Math.min(gh-2, Math.ceil(cy + R));
+  const inv = 1 / (r * r);
+  for (let y = y0; y <= y1; y++){
+    const dy = y - cy;
+    for (let x = x0; x <= x1; x++){
+      const dx = x - cx;
+      WcurA[y*gw+x] -= strength * Math.exp(-(dx*dx + dy*dy) * inv);
+    }
+  }
+}
+function waterStep(r){
+  const base = 0.9945 - r * 0.075;      // ripples die faster as the session runs on
+  const damp = 1 - (1 - base) / WSUB;   // ... at the same rate however many substeps we take
+  for (let s = 0; s < WSUB; s++){
+    for (let y = 1; y < gh-1; y++){
+      for (let x = 1; x < gw-1; x++){
+        const i = y*gw+x;
+        const v = (WcurA[i-1] + WcurA[i+1] + WcurA[i-gw] + WcurA[i+gw]) * 0.5 - WcurB[i];
+        WcurB[i] = v * damp;
+      }
+    }
+    const t = WcurA; WcurA = WcurB; WcurB = t;
+  }
+}
+function waterRender(r, fade){
+  const dim = (1 - r * 0.30) * fade, S = 2.2 / Math.max(0.35, ampW);
+  // deep -> reflected sky
+  const dR=30, dG=58, dB=64, sR=128, sG=163, sB=170;
+  for (let y = 0; y < gh; y++){
+    const yn = y > 0 ? y-1 : 0, ys = y < gh-1 ? y+1 : gh-1;
+    const vert = y / gh;
+    for (let x = 0; x < gw; x++){
+      const i = y*gw+x, xw = x > 0 ? x-1 : 0, xe = x < gw-1 ? x+1 : gw-1;
+      const nx = (WcurA[y*gw+xw] - WcurA[y*gw+xe]) * S;
+      const ny = (WcurA[yn*gw+x] - WcurA[ys*gw+x]) * S;
+      const il = 1 / Math.sqrt(nx*nx + ny*ny + 1);
+
+      // slope tilts what the surface reflects -> sky banding shifts with the ripples
+      let m = vert * 0.62 + 0.20 + ny * 0.42;
+      if (m < 0) m = 0; else if (m > 1) m = 1;
+
+      const lam = (nx*-0.40 + ny*-0.58 + 0.71) * il;
+      const sp = lam > 0 ? Math.pow(lam, 34) * 150 : 0;
+
+      let R = (dR + (sR-dR)*m + sp) * dim;
+      let G = (dG + (sG-dG)*m + sp) * dim;
+      let B = (dB + (sB-dB)*m + sp) * dim;
+      if (R>255) R=255; if (G>255) G=255; if (B>255) B=255;
+      if (R<0) R=0; if (G<0) G=0; if (B<0) B=0;
+      px[i] = (255<<24) | (B<<16) | (G<<8) | R;
+    }
+  }
+}
+
+/* ================= CLOUDS =================
+   A density field on a sky gradient. Vapour spreads, drifts downwind and
+   thins out; there is nothing to erode, so it simply stops being there. */
+let driftAcc = 0;
+const WIND = 4;                  // css px per second
+function cloudPoke(cx, cy, strength, r){
+  const R = r * 2.2;
+  const x0 = Math.max(0, (cx - R)|0), x1 = Math.min(gw - 1, Math.ceil(cx + R));
+  const y0 = Math.max(0, (cy - R)|0), y1 = Math.min(gh - 1, Math.ceil(cy + R));
+  const inv = 1 / (r * r);
+  for (let y = y0; y <= y1; y++){
+    const dy = y - cy;
+    for (let x = x0; x <= x1; x++){
+      const dx = x - cx;
+      CLOUD[y*gw+x] += strength * Math.exp(-(dx*dx + dy*dy) * inv);
+    }
+  }
+}
+function cloudStep(dt, r){
+  const dcy = Math.exp(-(0.055 + r * 0.34) * dt);
+  const k = Math.min(0.30, 6.5 * dt);
+  for (let y = 0; y < gh; y++){
+    const yn = y > 0 ? y-1 : 0, ys = y < gh-1 ? y+1 : gh-1;
+    for (let x = 0; x < gw; x++){
+      const i = y*gw+x, xw = x > 0 ? x-1 : 0, xe = x < gw-1 ? x+1 : gw-1;
+      const avg = (CLOUD[y*gw+xw] + CLOUD[y*gw+xe] + CLOUD[yn*gw+x] + CLOUD[ys*gw+x]) * 0.25;
+      let v = (CLOUD[i] + k * (avg - CLOUD[i])) * dcy;
+      if (v < 0) v = 0;
+      SAND2[i] = v;
+    }
+  }
+  driftAcc += WIND * dt / CELL;
+  if (driftAcc >= 1){
+    driftAcc -= 1;
+    for (let y = 0; y < gh; y++){        // one cell downwind
+      const row = y*gw;
+      for (let x = gw-1; x > 0; x--) CLOUD[row+x] = SAND2[row+x-1];
+      CLOUD[row] = SAND2[row] * 0.55;
+    }
+  } else {
+    CLOUD.set(SAND2);
+  }
+}
+function cloudsRender(r, fade){
+  const dim = (1 - r * 0.26) * fade;
+  for (let y = 0; y < gh; y++){
+    const yn = y > 0 ? y-1 : 0, ys = y < gh-1 ? y+1 : gh-1;
+    const m = Math.pow(y / gh, 0.85);
+    const skR = 62 + (166-62)*m, skG = 116 + (201-116)*m, skB = 186 + (232-186)*m;
+    const bR = skR*dim, bG = skG*dim, bB = skB*dim;
+    for (let x = 0; x < gw; x++){
+      const i = y*gw+x;
+      let d = CLOUD[i] * 1.35;
+      if (d <= 0.004){ px[i] = (255<<24) | (bB<<16) | (bG<<8) | bR; continue; }
+      if (d > 1) d = 1;
+      const a = d*d*(3 - 2*d);                    // soft, non-linear edge
+
+      // lit from above: the underside of a puff is the darker, bluer side
+      const gy = CLOUD[yn*gw+x] - CLOUD[ys*gw+x];
+      let sh = 0.92 - gy*0.45 + grain[i]*0.05;
+      if (sh > 1.04) sh = 1.04; if (sh < 0.60) sh = 0.60;
+      const shade = (1 - sh) * 46;
+      const cR = 255*sh, cG = 253*sh, cB = 250*sh + shade;
+
+      let R = (skR + (cR-skR)*a) * dim;
+      let G = (skG + (cG-skG)*a) * dim;
+      let B = (skB + (cB-skB)*a) * dim;
+      if (R>255) R=255; if (G>255) G=255; if (B>255) B=255;
+      if (R<0) R=0; if (G<0) G=0; if (B<0) B=0;
+      px[i] = (255<<24) | (B<<16) | (G<<8) | R;
+    }
+  }
+}
+
+/* ================= INK ON PAPYRUS =================
+   The only mode that skips the grid. A five-pixel calligraphic line needs
+   real edges, so it is drawn as geometry on its own layer and faded there. */
+function buildPaper(){
+  const p = document.createElement("canvas");
+  p.width = gw; p.height = gh;
+  const c2 = p.getContext("2d");
+  const im = c2.createImageData(gw, gh);
+  const p32 = new Uint32Array(im.data.buffer);
+  for (let y = 0; y < gh; y++){
+    const fy = Math.min(gh-1, (y * 0.30)|0);
+    for (let x = 0; x < gw; x++){
+      const i = y*gw+x;
+      const fx = Math.min(gw-1, (x * 0.22)|0);
+      // noise stretched along each axis in turn -> crossed papyrus fibres
+      let v = 0.94 + grain[y*gw+fx]*0.075 + grain[fy*gw+x]*0.05 + grain[i]*0.028;
+      v -= 0.055 * Math.sin(x*0.013 + y*0.007) * Math.sin(y*0.011 - x*0.005);
+      if (v > 1.06) v = 1.06; if (v < 0.72) v = 0.72;
+      let R = 226*v, G = 204*v, B = 160*v;
+      if (R>255) R=255; if (G>255) G=255; if (B>255) B=255;
+      p32[i] = (255<<24) | (B<<16) | (G<<8) | R;
+    }
+  }
+  c2.putImageData(im, 0, 0);
+  paperCv = p;
+}
+function buildInk(dpr){
+  const old = inkCv;
+  const n = document.createElement("canvas");
+  n.width = Math.round(W * dpr); n.height = Math.round(Hpx * dpr);
+  const c2 = n.getContext("2d");
+  c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (old) c2.drawImage(old, 0, 0, W, Hpx);
+  inkCv = n; inkCtx = c2;
+}
+function clearInk(){
+  if (!inkCtx) return;
+  inkCtx.save();
+  inkCtx.setTransform(1, 0, 0, 1, 0, 0);
+  inkCtx.clearRect(0, 0, inkCv.width, inkCv.height);
+  inkCtx.restore();
+}
+/* Broad nib held at a fixed angle: the stroke is the area swept by the nib
+   edge, so thickness falls out of direction the way italic hands do. */
+const NIB_A = -0.72;
+function inkStroke(x0, y0, x1, y1, h){
+  const dx = x1-x0, dy = y1-y0;
+  const L = Math.hypot(dx, dy) || 1;
+  const ex = dx/L * 0.4, ey = dy/L * 0.4;      // overlap the joins, or AA leaves seams
+  const nx = Math.cos(NIB_A)*h, ny = Math.sin(NIB_A)*h;
+  inkCtx.globalCompositeOperation = "source-over";
+  inkCtx.fillStyle = "#16110c";
+  inkCtx.beginPath();
+  inkCtx.moveTo(x0-ex-nx, y0-ey-ny);
+  inkCtx.lineTo(x0-ex+nx, y0-ey+ny);
+  inkCtx.lineTo(x1+ex+nx, y1+ey+ny);
+  inkCtx.lineTo(x1+ex-nx, y1+ey-ny);
+  inkCtx.closePath();
+  inkCtx.fill();
+}
+let inkFadeAcc = 0;
+function inkFade(dt, r){
+  inkFadeAcc += dt;
+  if (inkFadeAcc < 0.10) return;               // batched: a per-frame alpha this small rounds to nothing
+  inkFadeAcc = 0;
+  inkCtx.globalCompositeOperation = "destination-out";
+  inkCtx.fillStyle = "rgba(0,0,0," + (0.010 + r * 0.030).toFixed(4) + ")";
+  inkCtx.fillRect(0, 0, W, Hpx);
+  inkCtx.globalCompositeOperation = "source-over";
+}
+function inkRender(r, fade){
+  ctx.globalAlpha = 1;
+  ctx.drawImage(paperCv, 0, 0, gw, gh, 0, 0, W, Hpx);
+  ctx.globalAlpha = 0.94 - r * 0.30;
+  ctx.drawImage(inkCv, 0, 0, W, Hpx);
+  ctx.globalAlpha = 1;
+  const d = 1 - fade * (1 - r * 0.18);
+  if (d > 0.002){
+    ctx.fillStyle = "rgba(28,24,21," + d.toFixed(3) + ")";
+    ctx.fillRect(0, 0, W, Hpx);
+  }
+}
+
+/* ---------- one place that decides what reaches the screen ---------- */
+function paint(r, fade){
+  if (mode === "ink"){ inkRender(r, fade); return; }
+  if (mode === "clouds")     cloudsRender(r, fade);
+  else if (mode === "water") waterRender(r, fade);
+  else                       sandRender(r, fade);
+  bufCtx.putImageData(img, 0, 0);
+  ctx.drawImage(buf, 0, 0, gw, gh, 0, 0, W, Hpx);
+}
+
+/* ---------- audio: resumed properly for iOS ---------- */
+let ac = null, hiss = null, filt = null;
+const VOICE = {
+  sand:   { type:"bandpass", f:2600, q:0.7, cap:0.050 },
+  water:  { type:"lowpass",  f:520,  q:0.4, cap:0.090 },
+  clouds: { type:"lowpass",  f:240,  q:0.3, cap:0.055 },
+  ink:    { type:"bandpass", f:4200, q:1.4, cap:0.038 }
+};
+function resumeAudio(){
+  try{
+    if (!ac){
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      const len = ac.sampleRate * 2;
+      const b = ac.createBuffer(1, len, ac.sampleRate);
+      const d = b.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random()*2 - 1;
+      const src = ac.createBufferSource();
+      src.buffer = b; src.loop = true;
+      filt = ac.createBiquadFilter();
+      hiss = ac.createGain(); hiss.gain.value = 0;
+      src.connect(filt).connect(hiss).connect(ac.destination);
+      src.start();
+    }
+    if (filt){
+      const v = VOICE[mode] || VOICE.sand;
+      filt.type = v.type; filt.frequency.value = v.f; filt.Q.value = v.q;
+    }
+    if (ac.state === "suspended") ac.resume();   // iOS hands you a suspended context
+  }catch(err){ ac = null; }
+}
+
+/* ---------- keep the screen awake ----------
+   The ramp deliberately reduces the reason to touch, so without this the
+   phone locks during exactly the part we care about. */
+let wakeLock = null;
+async function keepAwake(){
+  try{
+    if ("wakeLock" in navigator && !wakeLock){
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    }
+  }catch(err){ wakeLock = null; }
+}
+function dropAwake(){ try{ wakeLock && wakeLock.release(); }catch(err){} wakeLock = null; }
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && phase === "play") keepAwake();
+});
+
+/* ---------- loop ---------- */
+let t0 = 0, last = 0, acc = 0;
+const FIXED = 1/60;
+let perfN = 0, perfSum = 0, degraded = 0;
+
+function frame(now){
+  requestAnimationFrame(frame);
+  let dt = (now - last)/1000; last = now;
+  if (!(dt > 0) || dt > 0.1) dt = 0.016;
+
+  if (phase !== "play" && phase !== "fading"){ paint(0, 1); return; }
+
+  const t = (now - t0)/1000;
+  const r = ramp(t);
+
+  // laggy follower
+  const a = 1 - Math.exp(-5.0 * dt);
+  pfx = fx; pfy = fy;
+  fx += (tx - fx) * a; fy += (ty - fy) * a;
+  const dx = fx - pfx, dy = fy - pfy;
+  dragSpeed += ((down ? Math.hypot(dx,dy)/dt : 0) - dragSpeed) * 0.15;
+
+  if (down){
+    if (mode === "ink"){
+      // a nib lightens as it accelerates
+      inkStroke(pfx, pfy, fx, fy, R_NIB * (0.70 + 0.52/(1 + dragSpeed*0.0045)));
+    } else {
+      const dist = Math.hypot(dx, dy) / CELL;
+      const steps = Math.max(1, Math.min(28, Math.ceil(dist)));
+      const bite = mode === "sand"   ? (0.95 - r*0.72) * 60 * dt * ampS
+                 : mode === "water"  ? (0.55 - r*0.40) * 60 * dt * ampW
+                 :                     (1.15 - r*0.60) * 60 * dt;
+      for (let s = 1; s <= steps; s++){
+        const cx = (pfx + dx*(s/steps)) / CELL, cy = (pfy + dy*(s/steps)) / CELL;
+        if (mode === "sand")       sandCarve(cx, cy, bite/steps, rS);
+        else if (mode === "water") waterPoke(cx, cy, bite/steps, rW);
+        else                       cloudPoke(cx, cy, bite/steps, rC);
+      }
+    }
+  }
+
+  if (hiss && ac){
+    const cap = (VOICE[mode] || VOICE.sand).cap;
+    const g = down ? Math.min(cap, dragSpeed * 0.00007) : 0;
+    hiss.gain.setTargetAtTime(g, ac.currentTime, 0.08);
+  }
+
+  // fixed-step physics so behaviour matches across devices
+  acc = Math.min(acc + dt, FIXED * 4);
+  while (acc >= FIXED){
+    if (mode === "sand")        sandStep(FIXED, r);
+    else if (mode === "water")  waterStep(r);
+    else if (mode === "clouds") cloudStep(FIXED, r);
+    acc -= FIXED;
+  }
+  if (mode === "ink") inkFade(dt, r);
+
+  const remain = SESSION - t;
+  paint(r, remain < 12 ? Math.max(0, remain/12) : 1);
+
+  // if the device can't keep up, coarsen the grid rather than stutter
+  if (phase === "play" && degraded < 2){
+    perfSum += dt; perfN++;
+    if (perfN >= 120){
+      if (perfSum / perfN > 0.027){ degraded++; cellBoost += 1; build(); }
+      perfN = 0; perfSum = 0;
+    }
+  }
+
+  if (t >= SESSION && phase === "play"){
+    phase = "fading";
+    if (hiss && ac) hiss.gain.setTargetAtTime(0, ac.currentTime, 0.3);
+    setTimeout(finish, 1400);
+  }
+}
+
+/* ---------- screens ---------- */
+function show(id){ const e = document.getElementById(id); e.classList.remove("gone");
+  requestAnimationFrame(() => e.classList.remove("hidden")); }
+function hide(id, then){ const e = document.getElementById(id); e.classList.add("hidden");
+  setTimeout(() => { e.classList.add("gone"); then && then(); }, 950); }
+
+function startSession(m){
+  mode = m;
+  SAND.fill(0); WcurA.fill(0); WcurB.fill(0); CLOUD.fill(0);
+  clearInk();
+  acc = 0; perfN = 0; perfSum = 0; driftAcc = 0; inkFadeAcc = 0;
+  keepAwake(); resumeAudio();
+  phase = "play";
+  t0 = performance.now(); last = t0;
+  tx = fx = pfx = W/2; ty = fy = pfy = Hpx/2;
+}
+
+document.querySelectorAll("#choose .pick").forEach(b => {
+  b.onclick = () => { const m = b.dataset.mode; hide("choose", () => startSession(m)); };
+});
+document.querySelectorAll("#endv .pick").forEach(b => {
+  b.onclick = () => { const m = b.dataset.mode; hide("endv", () => startSession(m)); };
+});
+
+function finish(){
+  dropAwake();
+  if (TESTMODE){ phase = "after"; show("after"); q1(); }
+  else { phase = "end"; show("endv"); }
+}
+
+/* ---------- optional test protocol (?test=1) ---------- */
+const data = { pre:null, post:null, quit:null, wander:null };
+function scaleInto(node, cb){
+  node.innerHTML = "";
+  for (let i = 1; i <= 5; i++){
+    const b = document.createElement("button");
+    b.className = "dot"; b.textContent = i; b.onclick = () => cb(i);
+    node.appendChild(b);
+  }
+}
+function choicesInto(node, opts, cb){
+  node.innerHTML = "";
+  opts.forEach(o => { const b = document.createElement("button");
+    b.className = "choice"; b.textContent = o; b.onclick = () => cb(o); node.appendChild(b); });
+}
+if (TESTMODE){
+  document.getElementById("choose").classList.add("hidden","gone");
+  show("before");
+  scaleInto(document.getElementById("preScale"), v => {
+    data.pre = v; hide("before", () => show("choose"));
+  });
+}
+const afterQ = document.getElementById("afterQ");
+const aScale = document.getElementById("afterScale");
+const aEnds  = document.getElementById("afterEnds");
+const aCh    = document.getElementById("afterChoices");
+function q1(){
+  afterQ.textContent = "And now?";
+  aCh.innerHTML = ""; aEnds.style.display = "flex";
+  aEnds.children[0].textContent = "settled"; aEnds.children[1].textContent = "racing";
+  scaleInto(aScale, v => { data.post = v; q2(); });
+}
+function q2(){
+  afterQ.textContent = "Did you want to stop before it ended?";
+  aScale.innerHTML = ""; aEnds.style.display = "none";
+  choicesInto(aCh, ["No — I'd have stayed longer","No — it ended about right",
+                    "Yes — near the end","Yes — early on"], v => { data.quit = v; q3(); });
+}
+function q3(){
+  afterQ.textContent = "Did your mind drift off the screen?";
+  choicesInto(aCh, ["Yes, a lot","A little","No — I stayed on the surface",
+                    "No — I was thinking about the app itself"], v => { data.wander = v; report(); });
+}
+function report(){
+  phase = "summary";
+  const d = new Date().toISOString().slice(0,16).replace("T"," ");
+  document.getElementById("report").textContent =
+    `surface v0.3 / ${mode}\n${d}   session ${SESSION}s   brush ${BRUSH}\n` +
+    `----------------------------------\n` +
+    `wound up before : ${data.pre}/5\nwound up after  : ${data.post}/5\n` +
+    `change          : ${data.post-data.pre > 0 ? "+" : ""}${data.post-data.pre}\n` +
+    `wanted to stop  : ${data.quit}\nmind drifted    : ${data.wander}`;
+  hide("after", () => show("summary"));
+}
+document.getElementById("copyBtn").onclick = e => {
+  navigator.clipboard && navigator.clipboard.writeText(document.getElementById("report").textContent);
+  e.target.textContent = "Copied";
+};
+document.getElementById("againBtn").onclick = () => location.reload();
+
+build();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
