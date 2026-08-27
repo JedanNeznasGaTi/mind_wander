@@ -272,12 +272,12 @@ function build(){
   CLOUD = resample(CLOUD, ow, oh, gw, gh);
   SAND2 = new Float32Array(gw * gh);
 
-  if (grain && ow && oh){
-    grain = resample(grain, ow, oh, gw, gh);
-  } else {
-    grain = new Float32Array(gw * gh);
-    for (let i = 0; i < grain.length; i++) grain[i] = Math.random() - 0.5;
-  }
+  /* Regenerated every build, never resampled. resample() is nearest-neighbour, so
+     carrying the noise through repeated resizes -- and a phone toolbar collapsing fires
+     plenty of them -- compounds it into visible blocks, worst of all in the grass. The
+     surfaces above hold the drawing and have to survive; this is only texture. */
+  grain = new Float32Array(gw * gh);
+  for (let i = 0; i < grain.length; i++) grain[i] = Math.random() - 0.5;
 
   // a gaussian narrower than ~1.15 cells just aliases into a single pixel
   rS = Math.max(1.15, R_SAND  / CELL);
