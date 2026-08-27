@@ -33,9 +33,11 @@
   .q{ font-size:19px; line-height:1.5; max-width:22em; margin:0 0 28px; }
 
   /* 2x2 so four choices fit a phone */
-  .picks{ display:grid; grid-template-columns:repeat(2,1fr); gap:13px; width:100%; max-width:290px; }
+  .picks{ --gap:13px; display:grid; grid-template-columns:repeat(2,1fr); gap:var(--gap); width:100%; max-width:290px; }
+  /* five options: the last sits alone, centred, at the width of the rest */
+  .picks .pick:last-child{ grid-column:1 / -1; justify-self:center; width:calc(50% - var(--gap)/2); }
   .pick{
-    height:118px; border:1px solid var(--paper-edge); background:transparent;
+    height:106px; border:1px solid var(--paper-edge); background:transparent;
     color:var(--ink); font-family:inherit; font-size:16px; letter-spacing:.04em;
     cursor:pointer; display:flex; flex-direction:column; align-items:center;
     justify-content:flex-end; gap:10px; padding-bottom:16px; transition:background .25s ease;
@@ -43,13 +45,13 @@
   .pick:hover{ background:var(--paper-hover); }
   .pick:focus-visible{ outline:2px solid var(--ink); outline-offset:3px; }
   .pick svg{ width:52px; height:32px; }
-  .veil.dark .picks{ max-width:252px; gap:11px; }
-  .veil.dark .pick{ height:98px; font-size:14px; padding-bottom:13px; gap:7px; border-color:#2e2722; color:var(--dark-ink); }
+  .veil.dark .picks{ --gap:11px; max-width:252px; }
+  .veil.dark .pick{ height:86px; font-size:14px; padding-bottom:13px; gap:7px; border-color:#2e2722; color:var(--dark-ink); }
   .veil.dark .pick svg{ width:44px; height:27px; }
   .veil.dark .pick:hover{ background:#1e1a17; }
-  @media (max-height:560px){
-    .pick{ height:96px; } .pick svg{ width:44px; height:27px; }
-    .note{ margin-bottom:22px; }
+  @media (max-height:680px){
+    .pick{ height:88px; } .pick svg{ width:40px; height:25px; }
+    .note{ margin-bottom:20px; font-size:14px; }
   }
 
   .scale{ display:flex; gap:10px; margin-bottom:8px; }
@@ -121,6 +123,25 @@
       </svg>
       Ink
     </button>
+    <button class="pick" data-mode="field">
+      <svg viewBox="0 0 56 34" aria-hidden="true">
+        <path d="M3 30 h50" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".25"/>
+        <g fill="none" stroke="currentColor" stroke-width="1.2" opacity=".5">
+          <path d="M17 30 V13"/><path d="M28 30 V8"/><path d="M39 30 V15"/>
+        </g>
+        <g fill="none" stroke="currentColor" stroke-width="1.25" opacity=".62">
+          <circle cx="17" cy="11.5" r="3.4"/>
+          <circle cx="28" cy="6.5"  r="3.4"/>
+          <circle cx="39" cy="13.5" r="3.4"/>
+        </g>
+        <g fill="currentColor" opacity=".5">
+          <circle cx="17" cy="11.5" r="1.2"/>
+          <circle cx="28" cy="6.5"  r="1.2"/>
+          <circle cx="39" cy="13.5" r="1.2"/>
+        </g>
+      </svg>
+      Field
+    </button>
   </div>
 </div>
 
@@ -147,13 +168,14 @@
     <button class="pick" data-mode="water">Water</button>
     <button class="pick" data-mode="clouds">Clouds</button>
     <button class="pick" data-mode="ink">Ink</button>
+    <button class="pick" data-mode="field">Field</button>
   </div>
 </div>
 
 <script>
 "use strict";
 /* ------------------------------------------------------------------
-   surface — v0.3
+   surface — v0.4
    ?t=SECONDS   session length (default 180)
    ?test=1      re-enables the before/after questions
    ?b=FLOAT     brush scale relative to v0.2 (default 0.2 = five times smaller)
@@ -174,6 +196,13 @@ const R_WATER = 20 * BRUSH;
 const R_CLOUD = 24 * BRUSH;
 const R_NIB   = 13 * BRUSH;   // half-width of the calligraphy nib
 
+/* A flower still has to read as a flower, so it follows the brush knob only by its
+   square root: ?b= still moves it, but the default never shrinks it to a dot. */
+const FSCALE  = Math.min(2, Math.max(0.6, Math.sqrt(BRUSH / 0.2)));
+const FLOW_D  = 13 * FSCALE;   // bloom width in css px
+const FLOW_SP = 11 * FSCALE;   // gap between blooms along the drag
+const MAXF    = 650;
+
 const cv = document.getElementById("c");
 const ctx = cv.getContext("2d", { alpha:false });
 const buf = document.createElement("canvas");
@@ -187,6 +216,9 @@ let SAND = null, SAND2 = null, grain = null;   // sand heightfield (SAND2 double
 let WcurA = null, WcurB = null;                // water: two wave buffers
 let CLOUD = null;                              // cloud density
 let paperCv = null;                            // papyrus, pre-rendered once per build
+let grassCv = null;                            // meadow, likewise
+let FLOWERS = [], FSPR = [];                   // live blooms, and the sprites they draw from
+let sowAcc = 0, simNow = 0, DPR = 1;
 let inkCv = null, inkCtx = null;               // ink: its own vector layer
 let rS = 2, rW = 2, rC = 2;                    // brush radii in cells, derived from CELL
 let ampS = 1, ampW = 1, ampC = 1;              // deposit rate, corrected for cell size
@@ -219,7 +251,7 @@ function pickCell(){
 function build(){
   const ow = gw, oh = gh;
   W = window.innerWidth; Hpx = window.innerHeight;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = DPR = Math.min(window.devicePixelRatio || 1, 2);
 
   cv.width = Math.round(W * dpr); cv.height = Math.round(Hpx * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -269,7 +301,9 @@ function build(){
   WSUB = Math.max(1, Math.min(3, Math.round(5 / CELL)));
 
   buildPaper();
+  buildGrass();
   buildInk(dpr);
+  if (!FSPR.length) buildFlowerSprites();   // grid-independent, so only ever once
 }
 
 let resizeTimer = null;
@@ -562,9 +596,132 @@ function inkRender(r, fade){
   }
 }
 
+/* ================= FIELD =================
+   The grass is a texture; the flowers are objects. Each one opens where the drag
+   passed, leans on the same breeze as its neighbours, and shuts on its own clock. */
+const FPAL = [
+  ["#f7f4ea","#e9b93c"], ["#f4cb3c","#a87b1c"], ["#d9483c","#2f1b13"], ["#5c78c9","#d9d3a9"],
+  ["#e17ba9","#f1d979"], ["#9564c5","#f3e18b"], ["#e8863b","#6c3b13"], ["#efe1b9","#c18b2b"]
+];
+const SPR = 48;
+function buildFlowerSprites(){
+  for (let i = 0; i < 16; i++){
+    const c = document.createElement("canvas");
+    c.width = SPR; c.height = SPR;
+    const g2 = c.getContext("2d");
+    const pal = FPAL[i % FPAL.length];
+    const petals = 5 + ((Math.random()*4)|0);
+    const len = SPR * 0.30 * (0.85 + Math.random()*0.30);
+    const wid = len * (0.36 + Math.random()*0.22);
+    const off = Math.random() * Math.PI * 2;
+    g2.translate(SPR/2, SPR/2);
+    g2.fillStyle = pal[0];
+    for (let p = 0; p < petals; p++){
+      const a = off + p * (Math.PI*2/petals);
+      g2.beginPath();
+      g2.ellipse(Math.cos(a)*len*0.62, Math.sin(a)*len*0.62, len*0.52, wid, a, 0, Math.PI*2);
+      g2.fill();
+    }
+    g2.fillStyle = pal[1];
+    g2.beginPath(); g2.arc(0, 0, len*0.30, 0, Math.PI*2); g2.fill();
+    FSPR.push(c);
+  }
+}
+function buildGrass(){
+  const p = document.createElement("canvas");
+  p.width = gw; p.height = gh;
+  const g2 = p.getContext("2d");
+  const im = g2.createImageData(gw, gh);
+  const p32 = new Uint32Array(im.data.buffer);
+  for (let y = 0; y < gh; y++){
+    const by = Math.min(gh-1, (y * 0.32)|0);
+    const m = y / gh;
+    const bR = 116 + (72-116)*m, bG = 148 + (108-148)*m, bB = 72 + (50-72)*m;
+    for (let x = 0; x < gw; x++){
+      const i = y*gw+x;
+      const bx = Math.min(gw-1, (x * 0.5)|0);
+      // noise drawn out down the y axis reads as blades, a slower field as patches
+      let v = 0.96 + grain[by*gw+x]*0.11 + grain[y*gw+bx]*0.045 + grain[i]*0.05;
+      v -= 0.06 * Math.sin(x*0.011 + y*0.006) * Math.sin(y*0.009 - x*0.004);
+      if (v > 1.10) v = 1.10; if (v < 0.78) v = 0.78;
+      let R = bR*v, G = bG*v, B = bB*v;
+      if (R>255) R=255; if (G>255) G=255; if (B>255) B=255;
+      p32[i] = (255<<24) | (B<<16) | (G<<8) | R;
+    }
+  }
+  g2.putImageData(im, 0, 0);
+  grassCv = p;
+}
+function plant(x, y, r){
+  if (x < -14 || y < -14 || x > W + 14 || y > Hpx + 14) return;
+  if (FLOWERS.length >= MAXF) FLOWERS.shift();
+  FLOWERS.push({
+    x: x, y: y,
+    sp: (Math.random() * FSPR.length) | 0,
+    sz: FLOW_D * (0.72 + Math.random() * 0.60),
+    rot: Math.random() * Math.PI * 2,
+    ph:  Math.random() * Math.PI * 2,
+    t0:  simNow,
+    life: (8.5 - r * 5.0) * (0.80 + Math.random() * 0.45)
+  });
+}
+/* Sow by distance travelled rather than per frame, so a slow drag and a fast one
+   leave the same density of flowers instead of the same number. */
+function fieldSow(x0, y0, x1, y1, r){
+  const dx = x1-x0, dy = y1-y0, L = Math.hypot(dx, dy);
+  if (!(L > 0.001)) return;
+  const ux = dx/L, uy = dy/L, qx = -uy, qy = ux;
+  const sp = FLOW_SP * (1 + r * 0.8);          // the meadow thins as the session tires
+  let d = sp - sowAcc;
+  while (d <= L){
+    const j = (Math.random() - 0.5) * sp * 1.15;
+    plant(x0 + ux*d + qx*j, y0 + uy*d + qy*j, r);
+    d += sp;
+  }
+  sowAcc = L - (d - sp);
+}
+function fieldStep(){
+  let k = 0;
+  for (let i = 0; i < FLOWERS.length; i++){
+    const fl = FLOWERS[i];
+    if (simNow - fl.t0 < fl.life) FLOWERS[k++] = fl;
+  }
+  FLOWERS.length = k;
+}
+function fieldRender(r, fade){
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.drawImage(grassCv, 0, 0, gw, gh, 0, 0, W, Hpx);
+
+  const t = simNow, sway = t * 1.15;
+  for (let i = 0; i < FLOWERS.length; i++){
+    const fl = FLOWERS[i];
+    const age = t - fl.t0;
+    if (age < 0) continue;
+    const a = age / fl.life;
+    if (a >= 1) continue;
+    let k = age / 0.34; if (k > 1) k = 1; k = k*k*(3 - 2*k);         // opening
+    let w = a > 0.70 ? 1 - (a - 0.70)/0.30 : 1;
+    if (w < 0) w = 0; w = w*w*(3 - 2*w);                             // closing
+    const sc = k * (0.52 + 0.48*w) * fl.sz;
+    if (sc <= 0.02) continue;
+    const rot = fl.rot + Math.sin(sway + fl.ph) * 0.085;             // one breeze, many phases
+    const cs = Math.cos(rot)*sc, sn = Math.sin(rot)*sc;
+    ctx.globalAlpha = w * k;
+    ctx.setTransform(DPR*cs, DPR*sn, -DPR*sn, DPR*cs, DPR*fl.x, DPR*fl.y);
+    ctx.drawImage(FSPR[fl.sp], -0.5, -0.5, 1, 1);
+  }
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.globalAlpha = 1;
+
+  const d = 1 - fade * (1 - r * 0.20);
+  if (d > 0.002){ ctx.fillStyle = "rgba(28,24,21," + d.toFixed(3) + ")"; ctx.fillRect(0, 0, W, Hpx); }
+}
+
 /* ---------- one place that decides what reaches the screen ---------- */
 function paint(r, fade){
   if (mode === "ink"){ inkRender(r, fade); return; }
+  if (mode === "field"){ fieldRender(r, fade); return; }
   if (mode === "clouds")     cloudsRender(r, fade);
   else if (mode === "water") waterRender(r, fade);
   else                       sandRender(r, fade);
@@ -573,12 +730,13 @@ function paint(r, fade){
 }
 
 /* ---------- audio: resumed properly for iOS ---------- */
-let ac = null, hiss = null, filt = null;
+let ac = null, hiss = null, filt = null, lfo = null, lfoGain = null;
 const VOICE = {
-  sand:   { type:"bandpass", f:2600, q:0.7, cap:0.050 },
-  water:  { type:"lowpass",  f:520,  q:0.4, cap:0.090 },
-  clouds: { type:"lowpass",  f:240,  q:0.3, cap:0.055 },
-  ink:    { type:"bandpass", f:4200, q:1.4, cap:0.038 }
+  sand:   { type:"bandpass", f:2600, q:0.7, cap:0.050, lfo:0 },
+  water:  { type:"lowpass",  f:520,  q:0.4, cap:0.090, lfo:0 },
+  clouds: { type:"lowpass",  f:240,  q:0.3, cap:0.055, lfo:0 },
+  ink:    { type:"bandpass", f:4200, q:1.4, cap:0.038, lfo:0 },
+  field:  { type:"lowpass",  f:430,  q:0.25, cap:0.080, lfo:190 }
 };
 function resumeAudio(){
   try{
@@ -594,10 +752,16 @@ function resumeAudio(){
       hiss = ac.createGain(); hiss.gain.value = 0;
       src.connect(filt).connect(hiss).connect(ac.destination);
       src.start();
+      // a slow drift across the cutoff: filtered noise on its own sits too still to be wind
+      lfo = ac.createOscillator(); lfo.frequency.value = 0.17;
+      lfoGain = ac.createGain(); lfoGain.gain.value = 0;
+      lfo.connect(lfoGain); lfoGain.connect(filt.frequency);
+      lfo.start();
     }
     if (filt){
       const v = VOICE[mode] || VOICE.sand;
       filt.type = v.type; filt.frequency.value = v.f; filt.Q.value = v.q;
+      if (lfoGain) lfoGain.gain.value = v.lfo || 0;
     }
     if (ac.state === "suspended") ac.resume();   // iOS hands you a suspended context
   }catch(err){ ac = null; }
@@ -630,9 +794,10 @@ function frame(now){
   let dt = (now - last)/1000; last = now;
   if (!(dt > 0) || dt > 0.1) dt = 0.016;
 
+  simNow = (now - t0)/1000;
   if (phase !== "play" && phase !== "fading"){ paint(0, 1); return; }
 
-  const t = (now - t0)/1000;
+  const t = simNow;
   const r = ramp(t);
 
   // laggy follower
@@ -646,6 +811,8 @@ function frame(now){
     if (mode === "ink"){
       // a nib lightens as it accelerates
       inkStroke(pfx, pfy, fx, fy, R_NIB * (0.70 + 0.52/(1 + dragSpeed*0.0045)));
+    } else if (mode === "field"){
+      fieldSow(pfx, pfy, fx, fy, r);
     } else {
       const dist = Math.hypot(dx, dy) / CELL;
       const steps = Math.max(1, Math.min(28, Math.ceil(dist)));
@@ -676,6 +843,7 @@ function frame(now){
     acc -= FIXED;
   }
   if (mode === "ink") inkFade(dt, r);
+  else if (mode === "field") fieldStep();
 
   const remain = SESSION - t;
   paint(r, remain < FADEW ? Math.max(0, remain / FADEW) : 1);
@@ -706,7 +874,8 @@ function startSession(m){
   mode = m;
   SAND.fill(0); WcurA.fill(0); WcurB.fill(0); CLOUD.fill(0);
   clearInk();
-  acc = 0; perfN = 0; perfSum = 0; driftAcc = 0; inkFadeAcc = 0;
+  acc = 0; perfN = 0; perfSum = 0; driftAcc = 0; inkFadeAcc = 0; sowAcc = 0;
+  FLOWERS.length = 0;
   keepAwake(); resumeAudio();
   phase = "play";
   t0 = performance.now(); last = t0;
@@ -773,7 +942,7 @@ function report(){
   phase = "summary";
   const d = new Date().toISOString().slice(0,16).replace("T"," ");
   document.getElementById("report").textContent =
-    `surface v0.3 / ${mode}\n${d}   session ${SESSION}s   brush ${BRUSH}\n` +
+    `surface v0.4 / ${mode}\n${d}   session ${SESSION}s   brush ${BRUSH}\n` +
     `----------------------------------\n` +
     `wound up before : ${data.pre}/5\nwound up after  : ${data.post}/5\n` +
     `change          : ${data.post-data.pre > 0 ? "+" : ""}${data.post-data.pre}\n` +
